@@ -1,0 +1,331 @@
+---
+title: "<b>Multivariate Analysis</b><br>PAC1"
+author: "Adrià Mitjavila Ventura"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+#chunk options
+knitr::opts_chunk$set(echo = TRUE, 
+                      error = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      fig.align = "center",
+                      fig.width = 6, 
+                      fig.height = 6)
+
+# PACKAGES
+## Tidy code
+library(dplyr)
+
+## Plot
+library(ggplot2)
+library(plotly)
+library(FactoMineR)
+library(factoextra)
+```
+
+# Información
+
+El código y los archivos orginales de esta PEC, así como los informes en formato HTML pueden consultarse en el siguiente repositorio de [GitHub](https://github.com/amitjavilaventura/MultivariateAnalysis_PACs/tree/main/PAC1).
+
+# Ejercicios {.tabset}
+
+## Ejercicio 1 
+
+**En un estudio sobre una enfermedad del hígado se recogieron datos de 583 pacientes del departamento de digestivo de un hospital. De ellos, 416 experimentan una afección del hígado y 167 tienen otros problemas pero no se ven afectados por dicha afección. El archivo `dataset.csv` contiene un conjunto de variables que se consideran “marcadores” de dicha enfermedad, además del género de los pacientes. Las variables registradas son:**
+
+* **Age**: Edad del paciente
+* **Gender**: Género del paciente
+* **TB**: Bilirubina total
+* **DB**: Bilirubina directa
+* **Alkphos**: Fosfatasa alcalina
+* **Sgpt**: Alamina Aminotransferasa
+* **Sgot**: Aspartato Aminotransferasa
+* **TP**: Proteínas totales
+* **ALB**: Albúmina
+* **A/G**: Ratio entre Albúmina y Globulina
+* **Selector**: campo utilizado para romper los datos en dos grupos etiquetados 1 (*liver*) o 2 (*control*) por un grupo de expertos.
+
+```{r read.data, results=FALSE}
+data <- read.csv("dataset.csv")
+head(data)
+```
+
+### 1.1. Exploración de los datos {.tabset}
+
+#### A)
+
+**Realizar un resumen numérico y gráfico de los datos. Observar si hay valores faltantes y tenerlo en cuenta en el análisis.**
+
+La manera más fácil de realizar un resumen numérico es usar la función `summary()`.
+
+```{r 1a_num}
+summary(data)
+```
+
+
+El resumen numérico nos puede dar varias informaciones, donde tenemos que la edad de los pacientes oscila entre 4 y 90 años, siendo la media y mediana muy similares (44.75 y 45), entre otras variables.
+
+Buscando si hay valors faltantes (indicados como `NA`), se puede observar fácilmente que en el *ratio de albúmina y globulina* (variable **A.G**), hay un total de 4 valores que no están presentes. 
+
+Para proceder con el análisis, dado que el número de valores *NA* és muy peqeño y solo afecta a una variable, podríamos usar el método de *complete-case analysis* usando solo los casos que tengan todas las variables completas o el método de *available-case analysis*. Debido a su mayor senzillez, vamos a proceder con el filtraje de los casos incompletos, quedandonos con esos que tengan información para todas las variables.
+
+```{r filter.data,  results=FALSE}
+data_filt <- data[which(complete.cases(data)),]
+summary(data_filt)
+```
+
+Para hacer el resumen gráfico de las variables, podemos usar la función `plot()`, que nos dibujará una serie gráficos de dispersión relacionando las variables una contra una. 
+
+```{r 1a_graph, fig.height=10, fig.width=10, fig.cap="Figura 1.1. Gráfico de dispersión que compara todas las variables (por pares) de nuestro set de datos. Los datos usados para este gráfico incluyen los casos incompletos y todas las variables, sean numéricas o no."} 
+plot(data, main = "Scatterplot comparing all the variables one-vs-one")
+```
+
+A simple vista, las variables indicativas de la bilirubina directa y la bilirubina total (**DB** y **TB**, respectivamente) parecen tener una correlación bastante buena, así como las variables **TP** y **ALB** o **ALB** y **A/G**.
+
+#### B)
+
+**Estudiar la relación entre las variables numéricas, especialmente entre la bilirubina total y la directa. ¿Están correlacionadas?**
+
+Para hacerlo sencillo, vamos a crear otro set de datos a partir de los datos filtrados (casos completos) con solo las variables numéricas (todas menos *Gender* y *Selector*)
+
+```{r data_num, results=FALSE}
+data_num <- data_filt %>% dplyr::select(everything(), -Gender, -Selector)
+```
+
+En el resumen gráfico del apartado anterior, a simple vista parece que la bilirubina total (**TB**) y la directa (**DB**) tienen una buena correlación.
+
+Seguidamente vamos a comprobar la correlación entre variables usando la función `cor()` y a dibujar un gráfico de correlación con la función `corrplot()`.
+
+```{r 1b_cor, fig.cap="Figura 1.2. Correlaciones entre las distintas variables. A más intensidad de color, más correlación, ya sea positiva (azul) o negativa (rojo). Para hacer este gráfico solo se han usado las variables numéricas y los casos completos."}
+corrplot::corrplot(corr = cor(data_num), type = "lower", 
+                   number.digits = 2, method = "color", 
+                   addgrid.col = "gray50", addCoef.col = "black",
+                   title = "Correlation plot showing the correlation between each pair of variables")
+```
+
+En el gráfico anterior, donde a más intensidad de color más correlación, vemos que, en general, la correlación entre las distintas variables es pequeña (coeficiente de correlación de *Pearson* de menos de 0.3 en valor absoluto). Sin embargo, hay cuatro pares de variables que sí que tienen una alta correlación, siendo la bilirubina total i la bilirubina directa las variables más correlacionadas (*Pearson* = 0.87):
+
+* **DB** vs **TB**: *Pearson* = 0.87
+* **Sgot** vs **Sgpt**: *Pearson* = 0.79
+* **ABL** vs **TP**: *Pearson* = 0.78
+* **A.G** vs **ALB**: *Pearson* = 0.69
+
+Mirando estos números (*figura 1.2*), además del gráfico de dispersión (*figura 1.1*), podemos decir que la bilirubina total y la directa están altamente correlacionadas.
+
+#### C)
+
+**Hacer un gráfico multivariante de las correlaciones dos a dos.**
+
+*Mirar apartado anterior*
+
+#### D)
+
+**Obtener una lista de las correlaciones dos a dos, ordenadas de mayor a menor.**
+
+En la *Tabla 1.1* se muestran las correlaciones dos a dos, ordenadas de mayor a menor valor de *Pearson* en valor absoluto. Por razones de espacio, la *Tabla 1.1* se encuentra cortada a 10 entradas y la lista completa puede verse en la *Tabla S1.1* del material suplementario.
+
+```{r 1d}
+cor_list_1d <- cor(data_num) %>% 
+  reshape2::melt() %>%
+  dplyr::mutate(abs_pearson = sqrt(value^2)) %>%
+  dplyr::arrange(desc(abs_pearson)) %>%
+  magrittr::set_colnames(c("Variable 1", "Variable 2", "Pearson's correlation", "Absolute Pearson's"))
+
+cor_list_1d %>% head(10) %>% knitr::kable(align = "c", caption = "Tabla 1.1. Lista de correlaciones dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos. Solo se muestran las 10 primeras entradas. La lista con todos los valores se puede encontrar en el material suplementario (Tabla S1.1).")
+```
+
+
+#### E)
+
+**Repetir el punto anterior considerando las correlaciones parciales entre pares de variables cuando se fijan todas las demás. ¿Se ven afectadas vuestras conclusiones?**
+
+Para calcular las correlaciones parciales, usaremos la función `pcor()` del paquete `ppcor()`. 
+
+Primeramente haremos un gráfico de correlación como el de la *Figura 1.2*, con tal de observar las diferencias. Este gráfico podrá ser observado en la *Figura S1.1* en el material suplementario.
+
+```{r 1.e.parcor}
+par_cor_1e <- ppcor::pcor(data_num)
+```
+
+Viendo la *Figura S1.1*, se ve claramente que las correlaciones parciales cambian comparadas con las correlaciones obtenidas en la *Fig. 1.2*. Por ejemplo vemos como la correlación entre la bilirubina total (**TB**) y la directa (**DB**) disminuye ligeramente, mientras que las correlaciones parciales **ALB** vs **TP** (*Pearson's* = 0.82), **ALB** vs **A.G** (*Pearson's* = 0.90), y **TP** vs **A.G** (*Pearson's* = -0.69), augmentan (en valor absoluto) mucho comparadas con las correlaciones anteriores. 
+
+Igual que en el apartado *d*, la lista completa de las correlaciones parciales se puede observar en la *Tabla S1.2* en el material suplementario mientras que la *Tabla 1.2* solo muestra las diez primeras entradas.
+
+```{r 1.e}
+par_cor_1e_list <- par_cor_1e$estimate %>% 
+  reshape2::melt() %>%
+  dplyr::mutate(abs_pearson = sqrt(value^2)) %>%
+  dplyr::arrange(desc(abs_pearson)) %>%
+  magrittr::set_colnames(c("Variable 1", "Variable 2", "Pearson's correlation", "Absolute Pearson's"))
+
+par_cor_1e_list %>% head(10) %>% knitr::kable(align = "c", caption = "Tabla 1.2. Lista de correlaciones parciales dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos. Solo se muestran las 10 primeras entradas. La lista con todos los valores se puede encontrar en el material suplementario (Tabla S1.2).")
+
+```
+
+
+#### F)
+
+**Calcular el vector de medias, la matriz de covarianzas y la matriz de correlaciones de las variables respuesta numéricas conjuntamente pero por separado para los dos grupos (niveles del factor _Selector_ sin tener en cuenta el género).**
+
+Primero separamos los datos según el valor en la variable *Selector* (1 o 2). 
+
+```{r 1f, results=FALSE}
+data_num_selector1 <- data_filt %>% dplyr::filter(Selector == 1) %>% dplyr::select(everything(), -Gender, -Selector)
+data_num_selector2 <- data_filt %>% dplyr::filter(Selector == 2) %>% dplyr::select(everything(), -Gender, -Selector)
+
+
+mean_vect_selector1 <- colMeans(data_num_selector1)
+mean_vect_selector2 <- colMeans(data_num_selector2)
+
+cov_mat_selector1 <- cov(data_num_selector1)
+cov_mat_selector2 <- cov(data_num_selector2)
+
+corr_mat_selector1 <- cor(data_num_selector1)
+corr_mat_selector2 <- cor(data_num_selector2)
+```
+
+Después de haber separado los datos, calculamos los vectores de medias con `colMeans()`, la matriz de covarianzas con `cov()` o la matriz de correlaciones con `cor()`:
+  
+**Vector de medias:**
+
+* *Selector* == 1 ("Liver"):
+
+`r mean_vect_selector1`
+
+* *Selector* == 2 ("Control"):
+
+`r mean_vect_selector2`
+
+**Matriz de covarianzas:**
+
+* *Selector* == 1 ("Liver"):
+
+`r cov_mat_selector1`
+
+* *Selector* == 2 ("Control"):
+
+`r cov_mat_selector2`
+
+**Matriz de correlaciones:**
+
+* *Selector* == 1 ("Liver"):
+
+`r corr_mat_selector1`
+
+* *Selector* == 2 ("Control"):
+
+`r corr_mat_selector2`
+  
+#### G)
+
+**Calcular la varianza generalizada, la varianza total y el coeficiente de dependencia global $\eta^2 = 1−|R|$ para cada grupo por separado.**
+
+**Varianza generalizada**: se defene como el determinante de la matriz de varianzas. Así pues, con la función `det()` y la función `var()` vamos a calcular la varianza generalizada (ex. `det(var(data))`).
+
+```{r 1g1, results=FALSE}
+var_g_total     <- det(var(data_num))
+var_g_selector1 <- det(var(data_num_selector1))
+var_g_selector2 <- det(var(data_num_selector2))
+```
+
+La varianza generalizada del total de los datos es `r var_g_total`, mientras que para los datos etiquetados como `Selector == 1` es `r var_g_selector1` y para los datos etiquetados con `Selector == 2` es `r var_g_selector2`.
+
+
+**Varianza total**: se define como la suma de las varianzas de cada variable o como la traza de la matriz de varianzas y covarianzas. Como las varianzas son la diagonal de la matriz de varianzas-covarianzas, con la suma de la diagonal vamos a poder calcular la varianza total.
+
+```{r 1g2}
+vt_global    <- sum(diag(var(data_num)))
+vt_selector1 <- sum(diag(var(data_num_selector1)))
+vt_selector2 <- sum(diag(var(data_num_selector2)))
+```
+
+La varianza total del total de los datos es `r vt_global`, mientras que para los datos etiquetados como `Selector == 1` es `r vt_selector1` y para los datos etiquetados con `Selector == 2` es `r vt_selector2`.
+
+
+**Coeficiente de dependencia global** o **$\eta^2 = 1−|R|$**: para calcular el coeficiente de dependencia global tenemos que calcular el determinante $||$ de la matriz de correlaciones $R$ ($|R|$) y restarlo de 1.
+
+```{r 1g3}
+coef_dep           <- 1-det(cor(data_num))
+coef_dep_selector1 <- 1-det(cor(data_num_selector1))
+coef_dep_selector2 <- 1-det(cor(data_num_selector2))
+```
+
+El coeficiente de dependencia del total de los datos es `r coef_dep`, mientras que para los datos etiquetados como `Selector == 1` es `r coef_dep_selector1` y para los datos etiquetados con `Selector == 2` es `r coef_dep_selector2`.
+
+### 1.2. Visualización de los datos en dimensión reducida
+
+#### A)
+
+**Realizar un análisis de componentes principales y estudiar la calidad de la representación por diversos criterios según el número de dimensiones.**
+
+Primeramente, debemos tener en cuenta que el análisis de componentes principales (en adelante *PCA*) puede hacerse a partir de la matriz de covarianzas o la matriz de correlaciones. 
+
+Normalmente, si las distintas variables están medidas en escalas muy diferente y la varianza de las variables difiere mucho una de otra, no es recomendable que se ejecute el PCA a partir de la matriz de covarianzas, pues las primeras componentes principales van a estar definidas en base a una o pocas variables con una gran varianza. 
+
+A continuación observamos las varianzas de cada variable (presentes en la diagonal de la matriz de covarianzas):
+
+```{r fig.align="center"}
+diag(var(data_num)) %>% round(3) %>% knitr::kable(caption = "Tabla 1.3. Varianzas de las distintas variables de nuestro set de datos.")
+```
+
+Como se puede observar en la *Tabla 1.3*, las varianzas de las distintas variables son muy diferentes, siendo para algunas variables (i.e. *Alkphos*) mucho mayor que para otras (i.e. *TP*), por lo tanto, lo más adecuado en este caso sería usar la matriz de correlaciones para hacer el *PCA*.
+
+```{r}
+pca <- princomp(x = data_num, cor = T)
+
+pca_sum <- summary(pca)
+
+pca_sum
+```
+
+```{r}
+prop_var_pca <- data.frame(pc = c("PC1", "PC2", "PC3", "PC4", "PC5", "PC6", "PC7", "PC8", "PC9"),
+                           prop_var = c(0.3059902, 0.2252069, 0.1517200, 0.1064444, 0.09385116, 0.07404327, 0.02260517, 0.01397947, 0.006159383)) %>%
+  
+  ggplot
+```
+
+#### B)
+
+**Interpretar los dos primeros ejes principales mediante el gráfico de correlaciones con las variables originales.**
+
+
+#### C)
+
+**Representar los pacientes en un gráfico de dos dimensiones con puntos distintos según el grupo y el género.**
+
+
+#### D)
+
+**¿Alguien se atreve con el gráfico en tres dimensiones?**
+
+
+# Material suplementario
+
+```{r table_s1.1}
+cor_list_1d %>% knitr::kable(align = "c", caption = "Tabla S1.1. Lista de correlaciones dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos.")
+```
+
+```{r table_s1.2}
+par_cor_1e_list <- par_cor_1e$estimate %>% 
+  reshape2::melt() %>%
+  dplyr::mutate(abs_pearson = sqrt(value^2)) %>%
+  dplyr::arrange(desc(abs_pearson)) %>%
+  magrittr::set_colnames(c("Variable 1", "Variable 2", "Pearson's correlation", "Absolute Pearson's"))
+
+par_cor_1e_list %>% knitr::kable(align = "c", caption = "Tabla 1.2. Lista de correlaciones parciales dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos.")
+
+```
+
+```{r figS1.1, fig.cap="Figura S1.1. Mapa de calor con las correlaciones parciales entre todas las variables por pares. Las correlaciones parciales se han obtenido con la función 'pcor()' del paquete 'ppcor' y el gráfico se ha hecho con la función 'corrplot' del paquete 'corrplot'."}
+corrplot::corrplot(par_cor_1e$estimate, type = "lower", method = "color", 
+                   addgrid.col = "gray50", addCoef.col = "black", 
+                   title = "Partial correlation between all numeric variables one-vs-one.")
+```
