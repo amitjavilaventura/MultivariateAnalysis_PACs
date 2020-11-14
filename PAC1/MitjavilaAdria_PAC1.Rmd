@@ -23,20 +23,28 @@ knitr::opts_chunk$set(echo = TRUE,
 ## Tidy code
 library(dplyr)
 
-## Plot
+## Plotting
 library(ggplot2)
+library(patchwork)
+library(reshape2)
+library(ggforce)
+library(ggpubr)
+
 library(plotly)
 library(FactoMineR)
 library(factoextra)
 library(corrplot)
-library(patchwork)
+library(pca3d)
+
+## Stats
+library(rstatix)
 ```
 
 # Información
 
 El código y los archivos orginales de esta PEC, así como los informes en formato HTML pueden consultarse en el siguiente repositorio de [GitHub](https://github.com/amitjavilaventura/MultivariateAnalysis_PACs/tree/main/PAC1).
 
-# Ejercicios
+# Ejercicios {.tabset}
 
 ## Ejercicio 1 
 
@@ -444,28 +452,201 @@ pc <- princomp(data_num, cor=TRUE, scores=TRUE)
 
 gr <- data_filt$Gender
 pca3d(pca = pc, group = gr, components = c(1,2,3), show.scale = T, show.plane = T, legend = "topleft", title = "3D-PCA plot on the first 3 PCs. Gender coloring.")
-snapshotPCA3d(file="PCA3d_gender.png")
+snapshotPCA3d(file="figs/PCA3d_gender.png")
 
-gr <- data_filt$Gender
-pca3d(pca = pc, group = gr, components = c(1,2,3), show.scale = T, show.plane = T, legend = "topleft", title = "3D-PCA plot on the first 3 PCs. Gender coloring.")
-snapshotPCA3d(file="PCA3d_selector.png")
+gr <- data_filt$Selector
+pca3d(pca = pc, group = gr, components = c(1,2,3), show.scale = T, show.plane = T, legend = "topleft", title = "3D-PCA plot on the first 3 PCs. Selector coloring.")
+snapshotPCA3d(file="figs/PCA3d_selector.png")
 
 
 gr <- data_filt %>% mutate(SelGen = paste(Gender, "-", Selector))
 gr <- gr$SelGen
 pca3d(pca = pc, group = gr, components = c(1,2,3), show.scale = T, show.plane = T, legend = "topleft", title = "3D-PCA plot on the first 3 PCs. Selector coloring.")
-snapshotPCA3d(file="PCA3d_SelGen.png")
+snapshotPCA3d(file="figs/PCA3d_SelGen.png")
 ```
 
 ```{r 3dpca_gender, fig.cap="Figura 1.8. Gráfico 3D de los pacientes en las tres primeras componentes. Los puntos están coloresados según el género y el grupo de cada uno."}
-knitr::include_graphics("PCA3d_SelGen.png")
+knitr::include_graphics("figs/PCA3d_SelGen.png")
 ```
 
+En la *Figura S1.3* se puede observar un gráfico similar, pero usando la función `scatterplot3d()` del paquete con el mismo nombre.
+ 
+
+
+***
 
 <br><br><br>
 <br><br><br>
 
-# Material suplementario
+## Ejercicio 2 {.tabset} 
+
+**Una de las finalidades de disponer de marcadores para la enfermedad es determinar si ciertas variables se encuentran alteradas en los pacientes afectados. Para ello vamos a utilizar los datos del ejercicio 1, para investigar si hay diferencias entre los dos grupos.**
+
+### A)
+
+**a. Realizar un boxplot múltiple que permita comparar visualmente todas las variables numéricas, separadas por controles y pacientes.**
+
+Para hacer un *boxplot* múltiple, primero de todo usaremos la dunción `melt()` del paquete `reshape2` y después usaremos el paquete `ggplot2` (funciones `ggplot()` y `geom_boxplot()`). Finalmente usaremos la función `facet_wrap()` para separar los valores de la variable *Selector* en dos paneles o, por otro lado, también podremos separar todas las variables en distintos paneles para hacer más fácil la comparación entre pacientes y controles por cada variable.
+
+
+```{r 2a. boxplot_multiple, fig.cap="Figura 2.1. Gráficos de cajas de las variables numéricas presentes en los datos del ejercicio 1, separados según su condición ('Selector') de pacientes o controles. El p-valor mostrado ha sido obtenido mediante un test de wilcoxon (no pareado) e indica si las medias de pacientes y controles para la variable correspondiente son significativamente distintas o no.", fig.height=5, fig.width=5}
+data_filt %>% 
+  dplyr::mutate(Selector = Selector %>% recode("1" = "Pacients","2" = "Controls")) %>%
+  
+  melt() %>%
+  
+  ggplot(aes(x=Selector, y=value, fill=Selector)) + geom_boxplot(outlier.colour = "Gray50") +  
+  
+  facet_wrap(~variable, scales = "free_y") +
+  
+  stat_compare_means(method = "wilcox.test", paired = F,
+                     label = "p.format", label.y.npc = 0.85, label.x.npc = 0.3) +
+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 0.95),
+        legend.position = "none") +
+  
+  ggtitle("Variables of our study separated in patients and control subjects.") +
+  ylab("") + xlab("")
+  
+``` 
+
+La *Figura 2.1* nos permite comparar fácilmente muchas de las variables entre los pacientes (*Selector* = 1) y los controles (*Selector* = 2) de nuestro estudio:
+
+* La edad de los pacientes (mediana $\simeq$ 46) es ligeramente mayor que los controles (mediana $\simeq$ 41).
+
+* Aunque es dificil de ver a simple vista la *DB* y la *TB* de los pacientes (medianas: *DB* $\simeq$ 0.5, *TB* $\simeq$ 1.4) es ligeramente superior a la de los controles (medianas: *DB* $\simeq$ 0.2, *TB* $\simeq$ 0.8).
+
+* Por lo que respeta a las variables *TP*, *ALB* y *A.G*, se ve una ligera diferencia, siendo sus valores mayores en el caso del grupo control (medianas: *TP* $\simeq$ 6.6, *ALB* $\simeq$ 3.4, *A.G* $\simeq$ 1), que en el grupo de los pacientes (medianas: *TP* $\simeq$ 6.55, *ALB* $\simeq$ 3, *A.G* $\simeq$ 0.9). Sin embargo, esta diferencia no es significativa para la variable *TP*.
+
+* Finalmente están las variables *Alkphos*, *Sgpt* y *Sgot*, las medias són significativamente diferentes y con unos valores mayores en el caso de los pacientes (medianas: *Alkphos* $\simeq$ 229, *Sgpt* $\simeq$ 51, *Sgot* $\simeq$ 53) que de los sujetos del grupo control (medianas: *Alkphos* $\simeq$ 187, *Sgpt* $\simeq$ 28, *Sgot* $\simeq$ 29).
+
+En la *Figura S2.1* se puede ver un gráfico con los mismos datos separados en dos paneles, uno para pacientes y otro para controles.
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### B)
+
+**Si suponemos que se verifican todas las condiciones, realizar un MANOVA de un factor, utilizando la variable `Selector`, para decidir si hay diferencias en las variables marcadores**
+
+Antes de realizar el test MANOVA debemos hacer varias suposciciones:
+
+* **Normalidad:** esta se puede comprobar mediante el test de Shapiro-Wilk multivariante, con la función `mshapiro_test()`.
+
+```{r}
+mshapiro_test(data = data_num)
+```
+
+* **Homogeneidad de las varianzas**
+
+* **...**
+
+Como hemos visto, los datos no cumplen una distribución normal, ya que el p-valor obtenido del test de Shapiro-Wilk, es mucho menor que el nivel de significancia de 0.05, con lo que no podemos asumir la hipòtesis nula de la distribución normal. Así pues, tendríamos que usar un test no paramétrico homólogo al MANOVA.
+
+Sin embargo, asumiendo que todas las condiciones mencionadas se cumplen, para hacer el test MANOVA en un factor (*Selector*) podemos usar la función `manova()` que admite como argumentos los mismos que la función `aov` para el ANOVA. 
+
+```{r}
+attach(data_filt)
+manova <- manova(cbind(A.G, ALB, TP, Sgot, Sgpt, Alkphos, DB, TB, Age) ~ Selector, data = data_filt)
+detach()
+```
+
+```{r}
+summary(manova)
+```
+
+Segun el test MANOVA que hemos realizado, sí que hay diferencias significativas en las variables marcadores.
+
+```{r}
+summary.aov(manova) 
+```
+
+Concretamente, con un nivel de significancia de 0.05, todas las variables numéricas salvo *TP* muestran diferencias significativas entre los dos grupos. 
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### C)
+
+**Como además tenemos el factor `Gender` podemos considerar un modelo general con todos los factores (sin interacciones) y el modelo más simple con solo el factor principal y contrastar con la función `anova()` si el modelo simple explica la variación de los datos.**
+
+```{r}
+attach(data_filt)
+manova_general <- manova(cbind(A.G, ALB, TP, Sgot, Sgpt, Alkphos, DB, TB, Age) ~ Selector+Gender, data = data_filt)
+detach()
+
+anova()
+```
+
+```{r}
+summary(manova_general)
+```
+
+```{r}
+summary(manova_general)
+summary.aov(manova_general) 
+```
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### D)
+
+**Comparar las matrices de covarianzas de los dos grupos del factor `Selector` con el test de la razón de verosimilitudes y con el test _M de Box_**
+
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### E)
+
+**Otra opción para el apartado anterior habría sido comparar la variabilidad con un test de Levene múltiple. ¿Este test contrasta lo mismo que los anteriores? **
+
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### F) 
+
+**Los experimentadores dudan de la normalidad de las variables observadas. Estudiar el caso.**
+
+#### f1. Estudiar gráficamente y con algún test la normalidad univariante y multivariante (si es posible) en cada uno de los grupos
+
+#### f2. La normalidad multivariante se puede estudiar con la asimetría y la kurtosis multivariante de Mardia gracias a la función `mvn()` del paquete `MVN`. La misma función permite el estudio univariante y también hace los gráficos.
+
+#### f3. Acompañar el test con un gráfico qq-plot de ajuste a la distribución ji-cuadrado de las distancias de Mahalanobis (clásicas y robustas) de los datos a la media en cada grupo.
+
+#### f4. Comentar el resultado en cuanto a los tests y en cuanto a la presencia de datos atípicos.
+
+#### f5. En caso de duda sobre la normalidad multivariante de los datos, proponer y calcular un método multivariante para contrastar si hay diferencias de variabilidad entre los grupos.
+
+***
+
+<br><br><br>
+<br><br><br>
+
+### G)
+
+**Según cual haya sido el resultado de los apartados anteriores y dado que son únicamente dos grupos, tal vez se deba utilizar un test de permutaciones con la T^2^ de Hotelling** (*Estudiar la función `hotelling.test()` del paquete `Hotelling`*)
+
+***
+
+<br><br><br>
+<br><br><br>
+
+# Material suplementario {.tabset}
+
+## Tablas
 
 ```{r table_s1.1}
 cor_list_1d %>% knitr::kable(align = "c", caption = "Tabla S1.1. Lista de correlaciones dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos.")
@@ -481,6 +662,10 @@ par_cor_1e_list <- par_cor_1e$estimate %>%
 par_cor_1e_list %>% knitr::kable(align = "c", caption = "Tabla 1.2. Lista de correlaciones parciales dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos.")
 
 ```
+
+***
+
+## Figuras
 
 ```{r figS1.1, fig.cap="Figura S1.1. Mapa de calor con las correlaciones parciales entre todas las variables por pares. Las correlaciones parciales se han obtenido con la función 'pcor()' del paquete 'ppcor' y el gráfico se ha hecho con la función 'corrplot' del paquete 'corrplot'."}
 corrplot::corrplot(par_cor_1e$estimate, type = "lower", method = "color", 
@@ -503,6 +688,37 @@ fviz_pca_var(pca, col.var = "cos2",
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE, axes = c(2,3), title="PC2 - PC3", labelsize = 4)
 ```
+
+```{r fig.s1.3, fig.cap="Figura S1.3. PCA en 3D con las primeras tres componentes principales, con los individuos coloreados por la variable selector y con distintas formas para la variable Gender."}
+library(scatterplot3d)
+scatterplot3d(pc$scores[,1], pc$scores[,2], pc$scores[,3],
+              xlab="PC1", ylab="PC2", zlab="PC3",
+              color = ifelse(data_filt$Selector == "1", "green", "yellow"),
+              pch = ifelse(data_filt$Gender == "Male", 1, 15), 
+              main = "3D PCA with the first 3 components colored by selector and gender.")
+```
+
+```{r 2a_sup. boxplot_multiple, fig.cap="Figura S2.1. Gráficos de cajas de las variables numéricas presentes en los datos del ejercicio 1, separados en dos paneles según su condición ('Selector') de pacienteso controles. El eje Y ha sido limitado para una mejor visualización de las cajas a cambio de no visualizar algunos outliers de algunas variables.", fig.height=5, fig.width=5}
+data_filt %>% 
+  dplyr::mutate(Selector = Selector %>% recode("1" = "Pacients","2" = "Controls")) %>%
+  
+  melt() %>%
+  
+  ggplot(aes(x=variable, y=value, fill=variable)) + geom_boxplot(outlier.colour = "Gray50") +
+  
+  coord_cartesian(ylim = c(0,150)) +
+  
+  facet_wrap(~Selector) +
+  
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 0.95),
+        legend.position = "none") +
+  
+  ggtitle("Variables of our study separated in patients and control subjects.") +
+  ylab("") + xlab("")
+  
+``` 
+
+***
 
 # Bibliografía consultada
 
