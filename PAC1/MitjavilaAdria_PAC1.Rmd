@@ -38,11 +38,12 @@ library(pca3d)
 
 ## Stats
 library(rstatix)
+library(MVN)
 ```
 
 # Información
 
-El código y los archivos orginales de esta PEC, así como los informes en formato HTML pueden consultarse en el siguiente repositorio de [GitHub](https://github.com/amitjavilaventura/MultivariateAnalysis_PACs/tree/main/PAC1).
+El código y los archivos orginales de esta PEC, así como los informes en formato HTML pueden consultarse en el siguiente repositorio de [GitHub](https://github.com/amitjavilaventura/MultivariateAnalysis_PACs/tree/main/PAC1). El repositorio es privado, así que se tendrá que requerir el acceso para poder ver el código.
 
 # Ejercicios {.tabset}
 
@@ -539,7 +540,7 @@ Antes de realizar el test MANOVA debemos hacer varias suposciciones:
 mshapiro_test(data = data_num)
 ```
 
-* **Homogeneidad de las varianzas**
+* **Homogeneidad de las varianzas**: esto se puede llevar a cabo con un test de Levene (varianzas) o con un test de Box (covarianzas). Más adelante veremos que las varianzas y covarianzas entre grupos no son homogeneas.
 
 * **...**
 
@@ -574,22 +575,32 @@ Concretamente, con un nivel de significancia de 0.05, todas las variables numér
 
 **Como además tenemos el factor `Gender` podemos considerar un modelo general con todos los factores (sin interacciones) y el modelo más simple con solo el factor principal y contrastar con la función `anova()` si el modelo simple explica la variación de los datos.**
 
+Para hacer el modelo general con los dos factores (*Selector* y *Gender*) usaremos la función `manova()`, como hicimos en el apartado B, donde generamos el modelo simple con un solo factor (*Selector*). Luego para comparar los dos modelos, podemos usar la función `summary()` o la función `anova()` y ver que factores explican significativamente la variación de los datos.
+
 ```{r}
 attach(data_filt)
 manova_general <- manova(cbind(A.G, ALB, TP, Sgot, Sgpt, Alkphos, DB, TB, Age) ~ Selector+Gender, data = data_filt)
 detach()
-
-anova()
 ```
 
-```{r}
-summary(manova_general)
-```
+Con el model simple de un factor:
 
 ```{r}
-summary(manova_general)
-summary.aov(manova_general) 
+anova(manova)
 ```
+
+Vemos como la variable *Selector* explica significativamente la variación de los datos. 
+
+Con el model general con los dos factores:
+
+```{r}
+anova(manova_general)
+```
+
+Vemos como la variable *Selector* explica significativamente la variación de los datos, mientras que la variable *Gender* no es significativa (usando un nivel de significancia de 0.05, pero sí si usamos de 0.1).
+
+Así pues, como en el modelo general el único factor que explica la variación de los datos es *Selector*, podemos concluir que con el modelo simple tenemos suficiente para explicar dicha variación.
+
 
 ***
 
@@ -600,6 +611,19 @@ summary.aov(manova_general)
 
 **Comparar las matrices de covarianzas de los dos grupos del factor `Selector` con el test de la razón de verosimilitudes y con el test _M de Box_**
 
+Las matrices de covarianzas se pueden encontrar en la *Figura S2.1* para `Selector` = 1 y en la *Figura S2.2* para `Selector` = 2.
+ 
+* **Test de razón de verosimilitudes**: 
+
+
+* **Test _M de Box_**: el test M de Box, o prueba de box permite comparar las matrices de covarianzas entre dos grupos para ver si estas son iguales. Es un test muy sensible y debido a esto, se recomienda un límite de significancia bastante bajo (i.e. 0.001). También hay que tener en cuenta, que en caso de falta de normalidad de los datos, el resultado del test de Box puede ser significativo debido a esta falta de normalidad y no a la diferencia entre las matrices de covarianzas. Para llevar a cabo el test, se puede usar la función `boxM()` del paquete `heplots`.  
+
+```{r}
+boxM_res <- heplots::boxM(data_num, data_filt$Selector)
+summary(boxM_res)
+```
+
+Como se puede observar, con la prueba de Box, obtenemos que las matrices de covarianzas de los dos grupos son significativamente distintas. Aunque bien podría deberse a la falta de normalidad de los datos.
 
 ***
 
@@ -608,8 +632,16 @@ summary.aov(manova_general)
 
 ### E)
 
-**Otra opción para el apartado anterior habría sido comparar la variabilidad con un test de Levene múltiple. ¿Este test contrasta lo mismo que los anteriores? **
+**Otra opción para el apartado anterior habría sido comparar la variabilidad con un test de Levene múltiple. ¿Este test contrasta lo mismo que los anteriores?**
 
+El test de Levene es un test diseñado para el análisis de varianzas. Está diseñado para análisis univariante de la varianza (ANOVA), aunque se puede extrapolar a multivariante, pero con este contrastamos la homogeneidad de cada variable (igualdad de varianzas) entre los grupos, mientras con los dos tests efectuados en el apartado D, miramos la varianza y las covarianzas de todas las variables entre los grupos estudiados (*Selector* = 1, *Selector* = 2).
+
+```{r}
+library(car)
+attach(data_filt)
+levene_test(data = data_filt, formula = A.G+ALB+TP+Sgot+Sgpt+Alkphos+DB+TB+Age ~ Selector)
+detach()
+```
 
 ***
 
@@ -621,6 +653,33 @@ summary.aov(manova_general)
 **Los experimentadores dudan de la normalidad de las variables observadas. Estudiar el caso.**
 
 #### f1. Estudiar gráficamente y con algún test la normalidad univariante y multivariante (si es posible) en cada uno de los grupos
+
+Un test de normalidad que se puede usar es el de Shapiro-Wilk, del cual hay una versión univariante y otra multivariante.
+
+* Shapiro-Wilk univariante:
+
+```{r}
+shapiro_selector1 <- shapiro_test(data_num_selector1, vars = colnames(data_num_selector1))
+shapiro_selector2 <- shapiro_test(data_num_selector2, vars = colnames(data_num_selector1))
+
+paste("Resultado del test Shapiro-Wilk para el grupo Selector 1:")
+shapiro_selector1
+paste("Como se puede ver, todas las variables muestran un p-valor inferior a 0.05, por lo cual no podemos considerar que dichas variables sigan una distribución normal en el caso del grupo Selector 1.")
+paste("")
+paste("Resultado del test Shapiro-Wilk para el grupo Selector 2:")
+shapiro_selector2
+paste("Como se puede ver, todas las variables muestran menos TP un p-valor inferior a 0.05, por lo cual no podemos considerar que dichas variables sigan una distribución normal en el caso del grupo Selector 2.")
+```
+
+* Shapiro-Wilk multivariante:
+
+```{r}
+mshapiro_selector1 <- mshapiro_test(data = data_num_selector1)
+mshapiro_selector2 <- mshapiro_test(data = data_num_selector2)
+
+paste("El p-valor del test multivariante de Shapiro-Wilk en el grupo Selector 1 es", mshapiro_selector1$p.value, "por lo que no podemos considerar que este grupo siga una distribución normal multivariante.")
+paste("El p-valor del test multivariante de Shapiro-Wilk en el grupo Selector 2 es", mshapiro_selector2$p.value, "por lo que no podemos considerar que este grupo siga una distribución normal multivariante.")
+```
 
 #### f2. La normalidad multivariante se puede estudiar con la asimetría y la kurtosis multivariante de Mardia gracias a la función `mvn()` del paquete `MVN`. La misma función permite el estudio univariante y también hace los gráficos.
 
@@ -663,6 +722,14 @@ par_cor_1e_list %>% knitr::kable(align = "c", caption = "Tabla 1.2. Lista de cor
 
 ```
 
+```{r table S2.1}
+cov_mat_selector1 %>% knitr::kable(align = "c", caption = "Tabla S2.1. Matriz de covarianzas del grupo de pacientes ('Selector' = 1).")
+```
+
+```{r table S2.2}
+cov_mat_selector2  %>% knitr::kable(align = "c", caption = "Tabla S2.2. Matriz de covarianzas del grupo control ('Selector' = 2).")
+```
+
 ***
 
 ## Figuras
@@ -700,7 +767,8 @@ scatterplot3d(pc$scores[,1], pc$scores[,2], pc$scores[,3],
 
 ```{r 2a_sup. boxplot_multiple, fig.cap="Figura S2.1. Gráficos de cajas de las variables numéricas presentes en los datos del ejercicio 1, separados en dos paneles según su condición ('Selector') de pacienteso controles. El eje Y ha sido limitado para una mejor visualización de las cajas a cambio de no visualizar algunos outliers de algunas variables.", fig.height=5, fig.width=5}
 data_filt %>% 
-  dplyr::mutate(Selector = Selector %>% recode("1" = "Pacients","2" = "Controls")) %>%
+  dplyr::mutate(Selector = Selector %>% dplyr::recode("1" = "Patients",
+                                                      "2" = "Controls")) %>%
   
   melt() %>%
   
