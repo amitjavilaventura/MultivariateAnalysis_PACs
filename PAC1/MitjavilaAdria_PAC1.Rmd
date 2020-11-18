@@ -36,6 +36,8 @@ library(factoextra)
 library(corrplot)
 library(pca3d)
 
+library(chemometrics)
+
 ## Stats
 library(rstatix)
 library(MVN)
@@ -654,8 +656,29 @@ detach()
 
 #### f1. Estudiar gráficamente y con algún test la normalidad univariante y multivariante (si es posible) en cada uno de los grupos
 
-Un test de normalidad que se puede usar es el de Shapiro-Wilk, del cual hay una versión univariante y otra multivariante.
+Gràficamente, podemos usar la función `mvn()` para hacer los gráficos univariantes (i.e. histogramas) y multivariante (i.e. qqplot):
 
+```{r fig.cap="Figura 2.2a. Histogramas de para cada variable en los datos de pacientes (Selector = 1)."}
+mvn_res <- MVN::mvn(data = data_num_selector1, univariatePlot = "histogram")
+```
+
+```{r fig.cap="Figura 2.2b. Histogramas de para cada variable en los datos de sujetos control (Selector = 2)."}
+mvn_res <- MVN::mvn(data = data_num_selector2, univariatePlot = "histogram")
+```
+
+```{r fig.cap="Figura 2.3a. QQplot de las distancias de Mahalanobis en los datos de pacientes (Selector = 1)"}
+mvn_res <- MVN::mvn(data = data_num_selector1, multivariatePlot = "qq")
+```
+
+```{r fig.cap="Figura 2.3b. QQplot de las distancias de Mahalanobis en los datos de sujetos control (Selector = 2)"}
+mvn_res <- MVN::mvn(data = data_num_selector2, multivariatePlot = "qq")
+```
+
+A nivel gráfico, observando las *Figuras 2.2a* y *2.2b* se podría intuir una normalidad univariante para las variables *Age* y *TP* en ambos grupos, mientras que *ALB* parece tener una distribución similar a la normal en el sólo grupo de los pacientes y las otras variable no se parecen para nada a una distribución normal, pues són altamente asimétricas en ambos grupos.
+
+En cuanto a los gráficos (qqplots) multivariantes (*Figuras 2.3a* y *2.3b*), estos nos dicen que los datos no siguen una normalidad multivariante.
+
+Sin embargo, no podemos fiarnos solo de los métodos gráficos y se tienen que usar otros test estadísticos, como Shapiro-Wilk, que nos servirá tanto a nivel univariante como multivariante.
 * Shapiro-Wilk univariante:
 
 ```{r}
@@ -683,7 +706,30 @@ paste("El p-valor del test multivariante de Shapiro-Wilk en el grupo Selector 2 
 
 #### f2. La normalidad multivariante se puede estudiar con la asimetría y la kurtosis multivariante de Mardia gracias a la función `mvn()` del paquete `MVN`. La misma función permite el estudio univariante y también hace los gráficos.
 
+```{r}
+mvn_res <- MVN::mvn(data = data_num)
+mvn_res$multivariateNormality %>% knitr::kable(caption = "Tabla 2.1. Resultado de la función 'mvn()' para la normalidad multivariante.")
+
+mvn_res$univariateNormality %>% knitr::kable(caption = "Tabla 2.2. Resultado de la función 'mvn()' para la normalidad univariante.")
+```
+
+
 #### f3. Acompañar el test con un gráfico qq-plot de ajuste a la distribución ji-cuadrado de las distancias de Mahalanobis (clásicas y robustas) de los datos a la media en cada grupo.
+
+```{r}
+d2 <- Moutlier(data_num, quantile = 0.975, plot = F)
+n <- nrow(data_num)
+p <- ncol(data_num)
+quantiles <- qchisq((1:n)/(n+1),p)
+```
+
+```{r fig.cap="Figura 2.4. QQplot de ajuste a la distribución ji-cuadrado de las distancias de Mahalanobis clàsicas."}
+plot(quantiles, sort(d2$md), ylab = "Ordered classical Mahalanobis distances",xlab = "Chi-square quantile")
+```
+
+```{r fig.cap="Figura 2.5. QQplot de ajuste a la distribución ji-cuadrado de las distancias de Mahalanobis robustas."}
+plot(quantiles, sort(d2$rd), ylab = "Ordered robust Mahalanobis distances", xlab = "Chi-square quantile")
+```
 
 #### f4. Comentar el resultado en cuanto a los tests y en cuanto a la presencia de datos atípicos.
 
