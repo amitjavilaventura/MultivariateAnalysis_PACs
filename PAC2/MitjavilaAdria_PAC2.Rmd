@@ -1,0 +1,828 @@
+---
+title: "<b>Multivariate Analysis</b><br>PAC2"
+author: "Adrià Mitjavila Ventura"
+output: 
+  html_document:
+    theme: yeti
+    toc: no
+    toc_float: yes
+    toc_depth: 1
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+#chunk options
+knitr::opts_chunk$set(echo = TRUE, 
+                      error = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      fig.align = "center",
+                      fig.width = 6, 
+                      fig.height = 6,
+                      results = "hold")
+
+# setwd
+setwd("~/Dropbox/Adrià/ESTUDIS/master_bioinfo_uoc/MultivariateAnalisis/PACs/PAC2")
+```
+
+
+```{r setup2, include=T}
+# PACKAGES
+## Tidy code
+library(dplyr)
+library(magrittr)
+library(tibble)
+library(purrr)
+
+## Plotting
+library(ggplot2)
+library(patchwork)
+library(reshape2)
+library(ggforce)
+library(ggpubr)
+library(plotly)
+library(graphics)
+library(circlize)
+
+## Stats
+library(MASS)
+library(car)
+library(FactoMineR)
+library(factoextra)
+library(ca)
+library(vegan)
+library(cluster)
+library(heplots)
+library(rstatix)
+library(MVN)
+
+# custom functions
+profile_dist_matrix <- function(data){
+    mat <- as.matrix((data))
+    n <- ncol(mat)
+    profiles <- prop.table(x = mat, margin = 2)
+    average.profile <- rowSums(mat)/sum(mat)
+    dist.mat<- matrix(NA, n, n)
+    diag(dist.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            d2 <- sum(((profiles[, i] - profiles[, j])^2) / average.profile)
+            dist.mat[i, j] <- dist.mat[j, i] <- d2
+        }
+    }
+  colnames(dist.mat) <- rownames(dist.mat) <- colnames(mat)
+  dist.mat
+}
+
+```
+
+# Información
+
+El código y los archivos orginales de esta PEC, así como los informes en formato HTML pueden consultarse en el siguiente repositorio de [GitHub](https://github.com/amitjavilaventura/MultivariateAnalysis_PACs/tree/main/PAC2). El repositorio es privado, así que se tendrá que requerir el acceso para poder ver el código.
+
+# Ejercicios {.tabset}
+
+## Ejercicio 1.
+
+**En el trabajo de _Hunt et al._ se estudió la capacidad reproductiva de cinco especies de aves marinas en dos colonias en el sureste del mar de Bering. Además, el apéndice de este estudio resume las colonias y los tamaños de las poblaciones de otros trabajos. El archivo `seabirds.csv` recoge los datos (número de pájaros) de 23 especies en 9 colonias en el área del norte polar y subpolar. El principal interés de este ejercicio es representar las colonias de diversas formas y estudiar posibles conglomerados.**
+
+```{r read_seabirds}
+seabirds <- read.csv("seabirds.csv", stringsAsFactors = F)
+seabirds2 <- seabirds %>% column_to_rownames("Specie")
+margin_col <- rowSums(seabirds2)
+margin_row <- colSums(seabirds2)
+n <- sum(seabirds2)
+```
+
+### A) 
+
+**Calcular las frecuencias relativas, las frecuencias relativas marginales y la matriz de perfiles. El resultado debería ser la tabla 12.6 del libro de Krebs y que reproducimos al final de este documento.**
+
+Para calcular las frecuencias relativas, solo tenemos que dividir cada valor (frecuencias absolutas) por el total de observaciones (`r n`) o usando la función `prop.table(x=seabirds)` y las frecuencias relativas marginales se consiguen con la suma de las frecuencias relativas de cada columna o de cada fila. Sin embargo, con esto no nos sale igual que la *tabla 12.6 del libro de Krebs*.
+
+```{r}
+seabirds_freq_rel2 <- prop.table(x = seabirds2 %>% as.matrix())
+addmargins(seabirds_freq_rel2) %>% round(4) %>% 
+  knitr::kable(caption = "Table 1.1. Relative and marginal frequencies from data in 'seabirds.csv'. Relative frequencies are calculated using the total number of observations. Marginal frequencies are observed in the last row and the last column with the column/row name 'sum'. This table is not coincident with table 12.6 from Krebs book.", align = "c")
+```
+
+Para que coincida con la *tabla 12.6*, la tabla de frecuencias relativas debe hacerse respecto al total de observaciones en cada lugar, por lo que el valor de la frecuencia absoluta dividido por la suma de todas las observaciones en la columna correspondiente, algo que también pude conseguirse con `prop.table(x = seabirds, margin = 2)`. Lo que es la matriz de perfiles de las columnas o la frecuencia relativa condicionada a las columnas (*frec. absoluta de una celda dividida por la suma de las frec. absolutas de la columna correspondiente*).
+
+```{r 1a2}
+seabirds_perfiles_c <- prop.table(x = seabirds2 %>% as.matrix(), margin = 2)
+addmargins(seabirds_perfiles_c) %>% round(4) %>% 
+  knitr::kable(caption = "Table 1.2. Relative and marginal frequencies conditioned to columns from data in 'seabirds.csv'. Relative frequencies are calculated taking all the observations in each place (column), not the total number of observations. Marginal frequencies are observed in the last row and the last column with the column/row name 'sum'.", align = "c")
+```
+
+### B) 
+
+**Calcular la matriz de distancias ji-cuadrado entre los perfiles de las columnas y su inercia total.**
+
+Los perfiles de las columnas estan calculados en el ejercicio enterior, así que usaremos esos datos para calcular las distancias ji-cuadrado y su inercia total.
+
+*Distancia ji-cuadrado*: con la distancia ji-cuadrado entre los perfiles, podemos observar qué columnas se parecen más unas a otras: a una distancia más pequeña, más similitud entre columnas (en este caso, colonias de varias aves).
+
+La distancia ji-cuadrado entre columnas se puede definir como
+
+$$
+d_{ij}^{(cols)} = \sum_{k=1}^{r} \frac{1}{p_k.}(p^c_{ki} - p^c_{kj})^2
+$$
+
+donde:
+
+* $d_{ij}^{(cols)}$ es la distancia entre dos columnas $i$ y $j$,
+* $r$ es el número de filas,
+* $p_k. = \frac{n_k.}{n.}$ con $n_k.$ siendo la frecuencia marginal de la fila $k$ y $n.$ el total de observaciones de la muestra (también dicho el *perfil de columnas medio*),
+* $p^c_{ki}$ es la proporción en la fila $k$ y la columna $i$ y
+* $p^c_{kj}$ es la proporción en la fila $k$ y la columna $j$
+
+En nuestro caso, las proporciones las tenemos en la tabla calculada en el ejercicio anterior (*ejercicio 1a*) y que coinciden con la *tabla 12.6 del libro de Krebs*. 
+
+Para calcular dicha matriz, usaremos la función `profile_dist_matrix()`, definida a l'inicio de este informe, sacada de [STHDA](http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/120-correspondence-analysis-theory-and-practice/) y modificada por mi. `profile_dist_matrix()` acepta como input la matriz de perfiles (que devemos de transformar con `t()` para que coja las columnas) y el perfil de columnas medio ($p_k.$ en la función de la distancia entre columnas)
+
+```{r}
+dist_cols_matrix <- profile_dist_matrix((seabirds2))
+dist_cols_matrix %>% knitr::kable(caption = "Table 1.3. Chi-squared distance matrix between column profiles of the 'seabirds.csv' data.")
+```
+
+Como és de esperar, en la diagonal observamos distancias de 0, ya que comparamos cada columna consigo misma. 
+
+Por otro lado, podemos ver como hay columnas con una distancia muy pequeña como **CH-CI** (*0.0178*) o **CL-CT** (*0.7665*), mientras que otras tienen una distancia mayor y, por lo tanto, observamos como són distintas (**CH-SI** = *15.4651*, **NS-SI** = *20.8042*).
+
+*Inercia total*: la inercia total es la media ponderada de los cuadrados de las distancias $\chi^2$ entre los perfiles fila/columna y el perfil media [^(2)^](https://www.fbbva.es/wp-content/uploads/2017/05/dat/greenacre_cap04.pdf). También puede encontrarse dividiendo el estadístico $\chi^2$ por el total de observaciones. Cabe destacar que la inercia total es la misma tanto si se hace con los perfiles de fila como los de columna, ya que estamos actuando sobre la totalidad de los datos. 
+
+```{r}
+as.numeric(chisq.test(seabirds2)$stat)/n
+```
+
+### C) 
+
+**Con la matriz de distancias ji-cuadrado entre los perfiles realizar un escalado multidimensional. Dibujar las coordenadas principales para las columnas.**
+
+Para el escalado multidimensional usaremos la función `cmdscale()` con 8 coordenadas principales (el máximo en este caso) y indicando que queremos que nos devuelva los valores propios (*eigenvalues*).
+
+```{r 1c1}
+c <- cmdscale(d = dist_cols_matrix, k=8, eig = T)
+c
+```
+
+Una vez realizado el escalado multidimensional, debemos ver cuantas dimensiones (o coordenadas principales) explican la mayor parte de los datos originales. 
+
+Para ello usaremos los dos métodos siguientes, que se basan en la suma acumulada de los valores propios dividida por la suma total de estos valores propios. Como en nuestro caso hay algunos valores negativos, es necesario usar el valor absoluto (método 1) o elevar al cuadrado (método 2).
+
+$$
+P_{m}^{(1)} = \frac{\sum^{m}_{i=1} |\lambda_{i}| }{\sum^{n}_{i=1} |\lambda_{i}| }
+$$
+
+```{r 1c2}
+cumsum(abs(c$eig)) / sum(abs(c$eig))
+```
+
+$$
+P_{m}^{(1)} = \frac{\sum^{m}_{i=1} \lambda_{i}^2 }{\sum^{n}_{i=1} \lambda_{i}^2 }
+$$
+
+```{r 1c3}
+cumsum(c$eig^2) / sum(c$eig^2)
+```
+
+Ambos métodos nos sugieren utilizar dos dimensiones para la representación de los datos, pues después de la segunda componente principal, las otras no parecen tener un gran papel en la explicación de los datos
+
+```{r fig.cap="<b>Figure 1.1. MDS of chi-squared distances of column profiles. 2D representation (dimensións 1 and 2).</b>", fig.width=5, fig.height=5, out.width="50%"}
+c$points %>% as.data.frame() %>% mutate(names = rownames(c$points)) %>%
+ggplot(aes(V1, V2)) +
+  geom_point() +
+  geom_text(aes(label = names), 
+            position = position_dodge(width = 1),
+            vjust = -1, hjust = 1, size = 4) +
+
+  ggtitle("MDS of Chi-squared distances",
+          "of column profiles") +
+  xlab("1st principal coordinate") + ylab("2nd principal coordinate") +
+  
+  theme_bw(base_size = 15)
+  
+```
+
+Como se puede ver, la mayoría de columnas se encuentran en un punto similar dentro de la primera coordinada principal (salvo la columna SI), que es la que explica la mayor parte de la variación, mientras que en la segunda coordinada varian mucho. 
+
+Vemos como con dos dimensiones se explica mucho la distancia/dissimilaridad entre columnas, ya que cuanto más alejadas están unas de otras en el gráfico de coordenadas principales, más distancia hay entre sus perfiles. Por ejemplo, SI vemos como tiene un perfil que tiene una distáncia grande con todas las otras, PLI y NS también se encuentran lejos entre sí, mientras que CI y CH están muy cerca.
+
+A continuación, aunque no es extrictamente necesario, vamos ha hacer un gráfico 3D con las primeras tres coordinadas principales.
+
+```{r fig.cap="<b>Figura 1.2.  MDS of chi-squared distances of column profiles. 3D representation (dimensións 1, 2 and 3).</b>", fig.width=5, fig.height=5, out.width="50%"}
+plot3d <- cmdscale(dist_cols_matrix, k=8) %>% as.data.frame() %>% rownames_to_column("Name")
+plotly::plot_ly(x = plot3d$V1, y = plot3d$V2, z = plot3d$V3, name = plot3d$Name,
+                type = "scatter3d")
+```
+
+Podemos ver como en el eje Z (tercera coordinada principal), las columnas no parecen tener mucha variabilidad, dado que el rango de Z es de 1, mientras que los otros dos son de 20 y 8 para X e Y respectivamente. 
+
+Aún así, vemos como esta nueva coordenada principal explica un poco más la distancia entre los perfiles de las columnas. Por ejemplo, las columnas CI y CH, que con dos dimensiones se veían muy cerca de SGI, ahora se encuentran en los extremos opuestos del eje Z. 
+
+Sin embargo, esta representación puede ser confusa, ya que debido a las escalas del gráficovemos como, por ejemplo, CH se encuentra muy distanciada de SGI y parece estar más cerca de CL, cuando las distancias ji-cuadrado entre sus perfiles indican lo contrario.
+
+
+### D) 
+
+**Realizar un análisis de correspondencias y calcular las inercias principales (en %) y la inercia total con los valores propios. Dibujar una representación simétrica del CA. A pesar de la confusión de nombres, ¿cuales son las especies que caracterizan a la colonia SI (_Skomer Island, Irish Sea_)?**
+
+El análisis de correspondencias vamos a hacerlo usando la función `CA()` del paquete `FactoMineR`. Esta función nos devuelve los valores propios (*eigenvalues*) y los porcentajes de variancia (inercia) de cada dimensión ademas de las coordenadas de las filas y las columnas en cada dimensión y sus inercias, contribuciones, etc. Asimismo, nos permite hacer directamente una representación de los datos (indicando `graph=T`). 
+
+Como el porcentaje de inercia ya nos lo da la función, no hace falta calcularlo, aunque sencillamente sería calcular la suma de los valores propios (inercia total) y efectuar el porcentaje de cada valor propio respecto a ese valor.
+
+$$
+Inercia \space total = {\sum_{i=1}^{n}\lambda_i}*100
+$$
+Siendo $\lambda_i$ los valores propios y $n$ el total de dimensiones del anàlisis de correspondencias.
+
+$$
+Inercia \space principal \space _{(de \space la \space dimension \space j)} = \frac{\lambda_j}{\sum_{i=1}^n\lambda_i}*100
+$$
+
+
+```{r 1d1}
+ca = CA(X = seabirds2, ncp = 5, graph = F)
+```
+
+Los valores propios, así como la inercia principal (en porcentaje) y el porcentaje cumulativo de variancia/inercia se encuentran dentro la el resultado de la funcón `CA()`, concretamente en la variable `$eig`.
+
+```{r 1d2}
+ca$eig %>% knitr::kable(caption = "Table 1.4. Eigenvalues, percentages of variance/inertia and cumulative percentage of variance/inertia for each dimention.")
+```
+
+En los datos anteriores podemos ver los distintos porcentajes de inercia de cada dimensión y se ve claramente que la dimensión 1 nos explica la mayor parte de la variación ($\pm$ 61.7%), mientras que las dimensiones 2 y 3  ($\pm$ 16.4 y $\pm$ 13.2, respectivamente) nos explican un porcentaje relativamente mayor que las siguientes ddimensiones, que nos explican muy poco en total. 
+
+Para calcular la inercia total tenemos que sumar todos los valores propios, tal y como hemos mencionado anteriormente.
+
+```{r 1d3}
+paste("La inercia total es:", sum(ca$eig[,1]))
+```
+
+Finalmente, para representar los datos podemos usar las coordenadas de las filas y las columnas en las dos primeras dimensiones y hacer un `plot()` de ellas o simplemente indicando `graph=T` dentro de la función `CA()` o usando `ggplot2`.
+
+```{r 1d4, out.width="50%", fig.cap="<b>Figure 1.3. CA representation (dimensions 1 and 2) from 'seabirds.csv', with rows (species) represented in blue and columns (colonies) represented in red.<b>"}
+
+ggplot() + 
+  geom_point(ca$row$coord %>% as.data.frame(), mapping = aes(x = `Dim 1`, y = `Dim 2`), color="Blue") +
+  ggrepel::geom_text_repel(ca$row$coord %>% as.data.frame() %>% rownames_to_column("Name"), 
+            mapping = aes(x = `Dim 1`, y = `Dim 2`, label = Name), color = "Darkblue", seed = 3) +
+  
+  geom_point(ca$col$coord %>% as.data.frame(), mapping = aes(x = `Dim 1`, y = `Dim 2`), color="Red") +
+  ggrepel::geom_label_repel(ca$col$coord %>% as.data.frame() %>% rownames_to_column("Name"), 
+            mapping = aes(x = `Dim 1`, y = `Dim 2`, label = Name), color = "Darkred", seed = 3) +
+  
+  theme_bw(base_size = 14) +
+  
+  ggtitle("Representation of correspondence analysis",
+          "Dimension 1 and dimension 2") +
+  xlab("Dimension 1 (61.7% of variance)") +
+  ylab("Dimension 2 (16.4% of variance)") 
+
+
+```
+
+Como se puede ver en la *figura 1.3*, hay muchas especies características de la colonia **SI**, entre las cuales se encuentran:
+
+* Razorbill
+* Herring gull
+* Lesser black backed gull
+* Great black backed gull
+* Manx shearwater
+* Shag
+* Storm petrel
+* Atlantic puffin
+
+### E) 
+
+#### E.1.
+
+**Dada la gran cantidad de ceros en la tabla 12.6, en el libro de Krebs se sugiere la utilización de la distancia de Canberra entre las columnas de la tabla 12.6. La distancia de Canberra no tiene una única definición y, además, ha cambiado a lo largo de la historia. Una posible definición entre dos vectores $\textbf{p} = (p_1, p_2, . . . , p_k)'$ y $\textbf{q} = (q_1, q_2, . . . , q_k)'$ de la misma longitud es**
+
+$$
+d_C(\textbf{p},\textbf{q}) = \sum_{i=1}^{k} \frac{\mid p_i - q_i \mid}{|p_i|+|q_i|}
+$$
+
+**Cuando el denominador es cero, el cociente es NaN, y el sumando se elimina.** 
+
+**Comprobar que esta definición no sirve para calcular la matriz de similaridades de la tabla 12.7 del libro de Krebs y que se reproduce al final de este documento.**
+
+```{r 1e1}
+mat <- as.matrix(seabirds2)
+n <- ncol(mat)
+profiles <- prop.table(x = mat, margin = 2)
+dist.mat<- matrix(NA, n, n)
+diag(dist.mat) <- 0
+
+for(i in 1:(n-1)){
+  for(j in (i+1):n){
+    dc <- sum(abs(profiles[, i] - profiles[, j]) /
+                (abs(profiles[, i]) + abs(profiles[, j])), na.rm = T)
+    dist.mat[i, j] <- dist.mat[j, i] <- dc
+  }
+}
+
+colnames(dist.mat) <- rownames(dist.mat) <- colnames(mat)
+dist.mat %>% knitr::kable(caption = "Table 1.5. Canberra distance between column profiles using the 1st definition (mentioned above): d(p,q) = sum(abs(p-q) / (abs(p)+abs(q))), where p and q are 2 column profiles.")
+```
+
+La *tabla 12.7 del libro de Krebs* muestra las similaridades entre columnas que se han obtenido calculando $1 - Distancia\space de \space Canberra$. Como vemos en la *tabla 1.5*, esta muestra distancias mayores que 1, por lo que restarlas a 1 resultaría en similaridades negativas, cosa que no se muestra en la *tabla 12.7 del libro de Krebs*.
+
+#### E.2.
+
+**Una modificación de la distancia anterior es considerar la distancia**
+
+$$
+d_C(\textbf{p},\textbf{q}) = \frac{1}{k} \sum_{i=1}^{k} \frac{\mid p_i - q_i \mid}{|p_i|+|q_i|}
+$$
+
+**Igual que antes, cuando el denominador es cero, el sumando se elimina.**
+
+**Comprobar que con esta definición se puede obtener la tabla 12.7.**
+
+```{r 1e2}
+mat <- as.matrix(seabirds2)
+n <- ncol(mat)
+k <- nrow(mat)
+profiles <- prop.table(x = mat, margin = 2)
+dist.mat<- matrix(NA, n, n)
+diag(dist.mat) <- 0
+
+for(i in 1:(n-1)){
+  for(j in (i+1):n){
+    dc <- sum(abs(profiles[, i] - profiles[, j]) /
+              (abs(profiles[, i]) + abs(profiles[, j])), na.rm = T) / k
+      
+    dist.mat[i, j] <- dist.mat[j, i] <- dc
+  }
+}
+
+colnames(dist.mat) <- rownames(dist.mat) <- colnames(mat)
+
+dist.mat %>% knitr::kable(caption = "Table 1.6. Canberra distance between column profiles using the 2nd definition (mentioned above): d(p,q) = (1/k)*(sum(abs(p-q) / (abs(p)+abs(q)))), where p and q are 2 column profiles and k is the number of rows in the profiles table.")
+```
+
+La *tabla 1.6* no muestra ninguna distancia mayor que uno, por lo que es posible que, si restamos estas distancias a 1, el resultado sea la *tabla 12.7 del libro de Krebs*.
+
+```{r 1e2.2}
+round(1-dist.mat, 2) %>% knitr::kable(caption = "Table 1.7. Table of similarities obtained by resting the Canberra distances in table 1.6 from 1. As it can be seen, this table is the same as the table 12.7 from the Krebs' book.")
+```
+
+Como se puede ver en la *tabla 1.7*, las similaridades son las mismas que en la *tabla 12.7 del libro de Krebs* (aunque la *tabla 1.7* es simetrica respecto la diagonal y la del libro de krebs solo muestra la parte superior de esta diagonal). Por lo tanto, podemos afirmar que la definición usada en la *tabla 1.6* para calcular las distancias de Canberra es la misma que la que usan los autores de la *12.7 del libro de Krebs*.
+
+#### E.3.
+
+**Finalmente, se puede comprobar que ésta tampoco es la definición que utiliza R para calcular la distancia de Canberra. Tras una ardua investigación, se comprueba que la definición de R es**
+
+$$
+d_C(\textbf{p},\textbf{q}) = \frac{k}{k-n_z} \sum_{i=1}^{k} \frac{\mid p_i - q_i \mid}{|p_i|+|q_i|}
+$$
+
+**donde nz es el número de denominadores cero.**
+
+**Comprobar que ésta es la definición de la distancia de Canberra según R.**
+
+Según la documentación de la función `dist()`, el cálculo de la distancia de Canberra usando la función `dist(x, method = "canberra")` del paquete `stats no es la que se menciona arriba, sinó la primera (vease la [documentación de `dist()`](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/dist)). 
+
+Sin embargo, si usamos la definición mencionada en este ejercicio 1.e.3 y calculamos la distancia de Canberra (*tabla 1.8*) obtenemos las mismas distancias que usando la función `dist()` de R (*tabla 1.9*), por lo que podemos afirmar que R usa la definicion mencionada en este ejercicio 1.e.3.
+
+
+
+```{r 1e3}
+mat <- as.matrix(seabirds2)
+n <- ncol(mat)
+k <- nrow(mat)
+#nz <- sum(mat==0)
+profiles <- prop.table(x = mat, margin = 2)
+dist.mat<- matrix(NA, n, n)
+diag(dist.mat) <- 0
+
+for(i in 1:(n-1)){
+  for(j in (i+1):n){
+    nz <- sum((abs(profiles[, i]) + abs(profiles[, j]))==0)
+    dc <- sum(abs(profiles[, i] - profiles[, j]) /
+              (abs(profiles[, i]) + abs(profiles[, j])), na.rm = T) * (k/(k-nz))
+      
+    dist.mat[i, j] <- dist.mat[j, i] <- dc
+  }
+}
+
+colnames(dist.mat) <- rownames(dist.mat) <- colnames(mat)
+dist.mat %>% 
+  knitr::kable(caption = "Table 1.8. Canberra distance calculated using the column profiles of 'seabirds.csv' dataset and the definition given in the exercise 1.E.3: d(p,q) = (k/(k-nz)*(sum(abs(p - q) / (abs(p) + abs(q))))")
+
+(dist_canb <- dist(t(profiles), method = "canberra", diag = T, upper = T)) %>% as.matrix() %>%
+  knitr::kable(caption = "Table 1.9. Canberra distance calculated using the column profiles of 'seabirds.csv' dataset and the 'dist()' function specifying `method='canberra'`")
+```
+
+### F)
+
+**Realizar un MDS con la distancia de Canberra de R. Comprobar que se trata de una distancia euclídea. Dibujar el mapa. Comparar el resultado con el obtenido con la distancia ji-cuadrado. Utilizar la función `procrustes()` del paquete `vegan`.**
+
+```{r 1f1}
+mds2 <- cmdscale(d = dist_canb, k = 8, eig = T)
+mds2$points %>% knitr::kable(caption = "Table 1.10. Coordinates of the MDS from Canberra distances between column profiles shown in table 1.9.")
+mds2$eig %>% knitr::kable(caption = "Table 1.11. Eigenvalues of the MDS from Canberra distances between column profiles shown in the table 1.9.")
+
+```
+
+```{r 1f2, out.width="50%", fig.cap="<b>Figure 1.4. MDS of Canberra distances of column profiles. 2D representation (dimensions 1 and 2)<b>"}
+mds2$points %>% as.data.frame() %>% mutate(names = rownames(c$points)) %>%
+ggplot(aes(V1, V2)) +
+  geom_point() +
+  geom_text(aes(label = names), 
+            position = position_dodge(width = 1),
+            vjust = -1, hjust = 1, size = 4) +
+
+  ggtitle("MDS of Canberra distances",
+          "of column profiles") +
+  xlab("1st principal coordinate") + ylab("2nd principal coordinate") +
+  
+  theme_bw(base_size = 15)
+```
+
+```{r 1f3, out.width="50%", fig.cap="<b>Figure 1.5. MDS of Canberra distances of column profiles. 2D representation (dimensions 1 and 2)<b>"}
+plot(procrustes(c$points, mds2$points, scale = T))
+```
+
+Dos características que tienen las matrices de distancias no Euclídeas es que algunos de los valores propios del escalado multidimensional seran negativos, mientras que algunas de las coordenadas pueden ser numeros complejos. En nuestro caso, ni las coordenadas (*tabla 1.10*) son numeros complejos, ni los valores propios (*tabla 1.11*) son negativos. Por este motivo podemos sugerir que las distancias de la *tabla 1.9* son Euclídeas. 
+
+### G) 
+
+**Realizar un análisis de conglomerados jerárquico con el método deWard2 de la distancia de Canberra según R. Dibujar el dendograma resultante. Dibujar también un _heatmap_ de este análisis con la función `heatmap()`. Para ello, hay que elegir bien los parámetros `distfun=` y `hclustfun=` y una escala de colores. ¿Para qué sirve el _heatmap_?**
+
+```{r 1g1}
+hclust_1g <- hcut(x = dist_canb, hc_method = "ward.D2", k = 6)
+```
+
+```{r 1g2 , fig.cap="<b>Figure 1.6.</b>", out.width="50%"}
+fviz_dend(hclust_1g, cex = 2 , k = 6, main = "Hierarchical clustering with Canberra distances", sub = "6 clusters",
+          ggtheme = theme_bw(base_size = 17), show_labels = T, rect = TRUE)
+```
+
+Con el análisis de conglomerados jerárquico (*figura 1.6*), observamos como muchas de las afirmaciones que hicimos en análisis anteriores salen reforzadas. Para analizar el dendograma de la *figura 1.6*, debemos observar a que altura se separan cada conglomerado, hasta llegar a los conglomerados (*clusters*) donde se encuentran las columnas individuales. Cuanto a más altura se de una separción, más lejos estaran los clusteres resultatnes y, para comparar dos clusters, podemos sumar las alturas que los separan:
+
+* Primero vemos como hay una separación inicial que agrupa *SI*, *SPI* y *SGI* en un conglomerado y todas las otras columnas en otro. *SI* es la columna que se separa antes, a una altura de $\pm$ 25 en  el dendograma, donde se separa de *SPI* y *SGI*, l que refuerza la disimilaridad de *SI* con todas las otras columnas, algo observado en ejercicios previos.
+* La separación que sucede a continuación de la ya mencionada es la que separa *NS*, *CL* y *CT* de *PLI*, *CH* y *CI*.
+* A su vez, *NS* se separa de *CT* y *CL*, mientras que *PLI* se separa de *CI* y *CH*.
+* Finalmente, solo quedan clústeres con columnas individuales o con grupos de dos columnas. *CT* y *CL* se separan a una altura de 14, *SPI* y *SGI* a una altura de 10 y *CH* y *CI* a una altura de 2, siendo las columnas más cercanas, algo que ya habíamos visto con las matrices de distancias.
+
+Más o menos, estudiando el dendograma manualmente (algo que no es eficaç cuando hay muchas columnas), podemos establecer un orden de cercanía entre columnas/conglomerados.
+
+1. (*CI*) y (*CH*).
+2. (*SPI*) y (*SPG*).
+3. (*CL*) y (*CT*).
+4. (*CI*+*CH*) y (*PLI*). 
+5. (*CL*+*CT*) y (*NS*). 
+6. (*CI*+*CH*+*PLI*) y (*CL*+*CT*+*NS*). 
+7. (*SPI*+*SPG*) y (*SI*).
+8. (*CI*+*CH*+*PLI*+*CL*+*CT*+*NS*) y (*SPI*+*SPG*+*SI*).
+
+Además, para visualizar un análisis de conglomerados jerárquico también podemos usar un mapa de calor o `heatmap`. Para esto, podemos usar la función `heatmap()` del paquete `stats`, así como `heatmap.2()` (`gplots`), `pheatmap()` (`pheatmap`) o `Heatmap()` (`ComplexHeatmap`)
+
+```{r 1g3 , fig.cap="<b>Figure 1.7.</b>", out.width="50%"}
+gplots::heatmap.2(hclust_1g$merge %>% as.matrix())
+```
+
+
+### H
+
+**El siguiente paso es estudiar por algún criterio el número óptimo de conglomerados para el análisis jerárquico. Con la distancia de Canberra según R en particular, lo más sencillo es utilizar el criterio de las siluetas.**
+
+Las siluetas son un método para comprobar la consistencia de los conglomerados, de manera que representan como cada observación se parece a su *cluster* y al *cluster* más cercano. El valor de la silueta va de -1 a 1, con 1 siendo el valor que indica que más se parece a su propio cluster y -1 el que menos. 
+
+Cuando comparamos distintos numeros de clusters, podemos usar el valor medio de la silueta de cada numero de conglomerados para así elegir el número óptimo. 
+
+```{r 1h1, fig.cap="<b>Figure 1.8.</b>", out.width="50%"}
+avsi <- c(0)
+for(i in 2:8){
+  hclust_1g <- hcut(x = dist_canb, k = i, isdiss = T, hc_method = "ward.D2")
+  avsi[i-1] <- hclust_1g$silinfo$avg.width
+}
+plot(2:8,avsi,type="o", xlab="Number of clusters", ylab="Average silhouette length", main = "Hierarchical clustering")
+```
+
+Como se observa en la *figura 1.8*, hay dos picos en 4 clústeres (pico local) y en 6 clústers (pico absoluto). Con esto podemos decir que el número òptimo de conglomerados es 6. 
+
+### I)
+
+**Estudiar con la misma distancia el número óptimo de conglomerados con el método PAM.**
+
+```{r 1i1, fig.cap="<b>Figure 1.9.</b>", out.width="50%"}
+avsi <- c(0)
+for(i in 2:8){
+  km_vars <- pam(dist_canb, k=i, diss = T)
+  si <- silhouette(km_vars, dist_canb)
+  avsi[i-1] <- mean(si[,"sil_width"])
+}
+plot(2:8,avsi,type="o",xlab="Number of clusters", ylab="Average silhouette length", main = "PAM (K-medioids)")
+```
+
+Curiosamente, usando el método PAM( (*figura 1.9*), podmeos ver como el pico de la amplitud media de la silueta en los 6 conglomerados desaparace, convirtiéndose en un "valle", mientras que el pico en los 4 clústeres sigue estando y el pico absoluto está en los 7 grupos.
+
+En este caso, el número óptimo sería los de 7 grupos, aunqué en ambos, los 4 conglomerados parece un número razonable.
+
+```{r 1i2, fig.cap="<b>Figure 1.10.</b>", out.width="50%"}
+avsi <- c(0)
+for(i in 2:8){
+  km_vars <- pam(dist_canb, k=i, diss = T)
+  si <- silhouette(km_vars, dist_canb)
+  avsi[i-1] <- mean(si[,"sil_width"])
+}
+plot(2:8,avsi,type="o",xlab="Number of clusters", ylab="Average silhouette length", main = "PAM (K-medioids)")
+```
+
+### J)
+
+**De los apartados anteriores se deduce que hay un número razonable de conglomerados, aunque no sea óptimo. Dibujar el dendograma del apartado (g) con esa partición.**
+
+```{r 1j1 , fig.cap="<b>Figure 1.11.</b>", out.width="50%"}
+hclust_1j <- hcut(x = dist_canb, k = 4, hc_method = "ward.D2", graph = T)
+fviz_dend(hclust_1j, cex = 2 , k = 4, main = "Hierarchical clustering with Canberra distances", sub = "4 clusters",
+          ggtheme = theme_bw(base_size = 17), show_labels = T, rect = TRUE)
+```
+
+## Ejercicio 2.
+
+**Un estudio contiene dos medidas de los anillos de crecimiento en la escala del salmón de Alaska y de Canadá. Los datos se pueden obtener en el libro de _Johnson et al._ y se adjuntan en el archivo `salmon.txt`.**
+
+```{r 2_data}
+salmon <- read.delim("salmon.txt", sep = " ") %>% mutate(Gender = factor(Gender))
+salmon_canada <- salmon %>% filter(Origin == "Canadian")
+salmon_alaska <- salmon %>% filter(Origin == "Alaskan")
+
+salmon_list <- list(salmon, salmon_canada, salmon_alaska) %>% set_names(nm = c("All salmons", "Canadian salmons", "Alaskan salmons"))
+salmon_list_num <- salmon_list %>% purrr::map(~dplyr::select(.data = .x, Freshwater, Marine))
+```
+
+### A)
+
+**Realizar una estadística descriptiva univariante y multivariante según el factor *Origin*. Añadir algunos gráficos ilustrativos, en particular el de dispersión.**
+
+* **Resumen descriptivo de los datos (extremos, quartiles, media...):** El resumen descriptivo de los datos mediante `summary()` nos ayuda a obtener información sobre como están estructurados los valores de los datos (centralidad, etc). En este caso vamos a hacerlo en la totalidad de los datos, así como separados por origen.
+
+```{r 2a1}
+purrr::map(salmon_list, summary)
+```
+
+
+* **Estadísticos descriptivos univariantes (media, mediana, desviación estándard) según origen:** Con la media y la mediana tenemos información sobre la centralidad de los datos, mientras que con la desviación estándard obtenemos datos sobre la variabilidad de estos respecto la media. En este caso, vamos a hacerlo respecto a cada origen (salmón canadiense vs. salmón de Alaska.)
+
+```{r 2a2}
+salmon %>% group_by(Origin) %>% summarise(`Mean | Freshwater` = mean(Freshwater),
+                                          `Mean | Marine` = mean(Marine),
+                                          `SD | Freshwater` = sd(Freshwater),
+                                          `SD | Marine` = sd(Marine),
+                                          `Median | Freshwater` = median(Freshwater),
+                                          `Median | Marine` = median(Marine))
+```
+
+  Algo que es fácil de ver es que los salmones Alaskan suelen ser mayores que los Canadian cuando son marinos, pero menores en tamaño cuando se trata de salmones de agua dulce.
+
+* **Matriz de varianzas-covarianzas:**
+
+```{r 2a3}
+var_alaska <- salmon %>% filter(Origin == "Alaskan") %>% dplyr::select(-Gender, -Origin) %>% var()
+var_canada <- salmon %>% filter(Origin == "Canadian") %>% dplyr::select(-Gender, -Origin) %>% var()
+
+var_alaska %>% knitr::kable(caption = "Variance-Covariance matrix for Alaskan salmons")
+var_canada %>% knitr::kable(caption = "Variance-Covariance matrix for Canadian salmons")
+```
+
+* **Varianza total**:
+
+```{r 2a4}
+paste("Varianza total de los salmones de Alaska ", sum(eigen(var_alaska)$values) %>% round(2))
+paste("Varianza total de los salmones de Canada ", sum(eigen(var_canada)$values) %>% round(2))
+```
+
+* **Varianza generalizada:**
+
+```{r 2a5}
+paste("Varianza generalizada de los salmones de Alaska ", det(var_alaska) %>% round(2))
+paste("Varianza generalizada de los salmones de Canada ", det(var_canada) %>% round(2))
+```
+
+* **Coeficiente de dependencia global:**
+
+```{r 2a6}
+paste("Coeficiente de dependencia global  de los salmones de Alaska ", 
+      1-det(cor(salmon %>% filter(Origin == "Alaskan") %>% dplyr::select(-Gender, -Origin) )) %>% round(2))
+paste("Coeficiente de dependencia global de los salmones de Canada ", 
+      1-det(cor(salmon %>% filter(Origin == "Canadian") %>% dplyr::select(-Gender, -Origin) )) %>% round(2))
+```
+
+* **Gráfico de dispersión:** nos permitiran observar la correlación entre variables (Freshwater vs Marine) así como entre grupos (Canadian vs Alaskan).
+
+```{r 2a7, fig.show="hold", fig.align="center", out.width="50%", fig.cap="Figure 2.1. Alaskan Freshwater Salmons vs Alaskan Marine Salmons"}
+car::scatterplot(salmon_alaska$Freshwater, salmon_alaska$Marine, 
+                   main = "Alaskan Freshwater Salmons vs Alaskan Marine Salmons", xlab="Freshwater", ylab = "Marine")
+```
+```{r 2a8, fig.show="hold", fig.align="center", out.width="50%", fig.cap="Figure 2.2. Canadian Freshwater Salmons vs Canadian Marine Salmons"}
+car::scatterplot(salmon_canada$Freshwater, salmon_canada$Marine, 
+                   main = "Canadian Freshwater Salmons vs Canadian Marine Salmons", xlab="Freshwater", ylab = "Marine")
+```
+```{r 2a9, fig.show="hold", fig.align="center", out.width="50%", fig.cap="Figure 2.3. Alaskan Freshwater Salmons vs Canadian Freshwater Salmons"}
+car::scatterplot(salmon_alaska$Freshwater, salmon_canada$Freshwater, 
+                   main = "Alaskan Freshwater Salmons vs Canadian Freshwater Salmons", xlab="Alaskan", ylab = "Canadian")
+```
+```{r 2a10, fig.show="hold", fig.align="center", out.width="50%", fig.cap="Figure 2.4. Alaskan Freshwater Marine vs Canadian Marine Salmons"}
+car::scatterplot(salmon_alaska$Marine, salmon_canada$Marine, 
+                   main = "Alaskan Freshwater Marine vs Canadian Marine Salmons", xlab="Alaskan", ylab = "Canadian")
+```
+
+  Vemos como ni los salmones del mismo lugar (ex. Alaska o Canada) tienen correlación entre agua dulce y agua marina (figuras 2.1 y 2.2), así como los del mismo tipo de agua tienen correlación entre los distintos lugares de origen (figuras 2.3 y 2.4).
+
+* **Gráfico de cajas**
+
+```{r 2a11, out.width="50%", fig.cap="Figure 2.4. Boxplot of growth of freshwater and Marine salmons from Alaska and Canada."}
+salmon %>% melt() %>% 
+  ggplot(aes(Origin, value, color = Origin)) + geom_boxplot() + facet_wrap(~variable, scales = "free") + 
+  theme_pubr(legend = "none") +
+  
+  ylab("Growth") + xlab("Origin")
+```
+
+
+### B)
+
+**Realizar un análisis discriminante lineal. La función `lda()` del paquete `MASS` puede servir.**
+
+Un análisis discriminante es un método usado para predecir la probabilidad de pertenecer a un grupo determinado basándonos en una o varias variables predictoras. En parte, es similar a la regresión logística (vista en otro tema) en el sentido que ambos métodos son usados para classificar datos en base a variables discretas (ej. grupo 1 y grupo 2), aunqué la regresión logística se usa en casos de variables discretas de dos clases, mientras que el análisis discriminante puede servir para 2 o más clases. ^4^ También podríamos usar más de una variable como variable predictora.
+
+Cabe destacar que se necesita un grupo de datos conocidos para "entrenar" el modelo y así poder predecir la clasificación de datos nuevos.
+
+Primero hay que usar la función `lda()` para calcular el modelo, luego, mediante la función `predict()`, para predecir las probabilidades de cada observación en pertenecer en un grupo u otro (*tabla 2.1*), así como los coeficientes del model lineal y la predicción de la clase, normalmente según el criterio de probabilidad > 0.5.
+
+En este caso, la variable que defina los grupos será *Origin*, aunqué podríamos hacerla con otra variable categorica (ej. *Gender*) o crear una nueva variable que mezcle ambas.
+
+```{r 2b1}
+salmon2 <- salmon %>% mutate(group = paste(Origin, Gender, sep = "_"))
+lda_2b <- lda(salmon[,2:3], grouping = salmon$Origin)
+
+lda_2b_pred <- lda_2b %>% predict()
+lda_2b_pred$posterior %>% round(2) %>% head %>% knitr::kable(caption = "Table 2.1. Probabilities of belonging to Alaskan or Canadian categories for each of the salmons of the dataset. Note that only the first 6 observations are taken.")
+```
+
+A cada predicción se le asigna una puntuación o *score* relativo al modelo lineal que se relaciona con la probabilidad de pertenecer a uno u otro grupo y que nos puede dar información sobre la calidad de las predicciones. 
+
+```{r 2b2, fig.cap="<b>Figure 2.12. Density of the prediction scores in each group (Alaska / Canada) </b>"}
+ggplot(salmon, aes(lda_2b_pred$x, fill = Origin)) + geom_density(alpha = 0.5) + xlab("scores") 
+```
+
+Como se observa en la *figura 2.12*, hay un punto del gráfico de densidades en las que los valores de los dos grupos se solapan (cerca del 0), lo que nos puede sugerir que esas predicciones pueden no ser fiables, aunque en su mayor parte, los scores parece buenos.
+
+Otra manera de mirar la calidad del modelo es usando una tabla de clasifiación cruzada, mostrando cuantos de cuandos son predecidos como un grupo son acertados y cuantos no.
+
+```{r 2b3}
+table(lda=lda_2b_pred$class,real=salmon$Origin) %>%
+  knitr::kable(caption = "Table 2.2. Table of cross-classification showing the predictied classes and the real ones.")
+```
+
+Vemos en la *tabla 2.2* que, de los 50 salmones canadienses, 49 han sido predichos como tal, mientras que en el caso de los salmones de Alaska han sido predichos correctamente en 44 casos, mostrando un poco menos de tasa de acierto, pero igualmente con un resultado aceptable.
+
+
+
+### C) 
+
+**Clasificar una observación con un Freshwater de 120 y un valor de Marine de 380.**
+
+```{r 2c1}
+lda_2b <- lda(formula = Origin ~ Freshwater + Marine, data = salmon)
+
+predict(lda_2b,newdata=data.frame(Freshwater=120,Marine=380))
+```
+
+La predicción es que el salmón es canadiense, mientras que los salmones de medidas parecidas en los datos originales son tanto de Alaska como de Canadá.
+
+### D)
+
+**Comparar las matrices de covarianzas de las dos poblaciones con el test de la razón de verosimilitudes. También se puede aplicar el test M de Box. Ambos son muy sensibles a la no normalidad de los datos y tienden a rechazar la igualdad de covarianzas. **
+
+El análisis discriminante tiene asunciones, una de las cuales es la igualdad entre las mastrices de covarianzas entre las poblaciones que se están comparando. Para comprobar esto, podemos usar un test de verosimilitudes o un test M de Box.
+
+Como sabemos que ambos test son sensibles a la no normalidad de los datos, primero haremos un test de shapiro multivariante para comprobar si estos son normales
+
+```{r}
+mshapiro_test(data = salmon[,2:3])
+```
+
+Vemos como el p-valor del test de Shapiro-Wilk multivariante es muy proximo a uno, por lo que no podemos rechazar la hipótesis nula de una distribución normal, por lo que podemos fiarnos del resultado de los test.
+
+* **Test de verosimilitudes**: 
+
+```{r eval=FALSE, include=FALSE}
+Sa <- cov(salmon %>% filter(Origin == "Alaskan") %>% select(Freshwater, Marine))
+Sc <- cov(salmon %>% filter(Origin == "Canadian") %>% select(Freshwater, Marine))
+na <- sum(salmon$Origin=="Alaskan")
+nc <- sum(salmon$Origin=="Canadian")
+S <- ((na-1)*Sa + (nc-1)*Sc)/(na+nc-2)
+est <- (na+nc)*log(det(S)) - na*log(det(Sa)) - nc*log(det(Sc))
+pvalue <- pchisq(est, 9*(9+1)/2, low=F)
+cbind(est,pvalue)
+```
+
+* **Test _M de Box_**: el test M de Box, o prueba de box permite comparar las matrices de covarianzas entre dos grupos para ver si estas son iguales. Es un test muy sensible y debido a esto, se recomienda un límite de significancia bastante bajo (i.e. 0.001). También hay que tener en cuenta, que en caso de falta de normalidad de los datos, el resultado del test de Box puede ser significativo debido a esta falta de normalidad y no a la diferencia entre las matrices de covarianzas ^[*explicación sacada de la respuesta de mi PEC1*]^. En nuestro caso, la distribución parece ser normal, por lo que no debe preocuparnos esta parte. Para llevar a cabo el test, se puede usar la función `boxM()` del paquete `heplots`.
+
+```{r}
+boxM_res <- heplots::boxM(salmon[,2:3], salmon$Origin, )
+summary(boxM_res)
+```
+
+Como se puede observar, tanto con la prueba de razón de verosimilitudes que con la prueba de Box, obtenemos que las matrices de covarianzas de los dos grupos son significativamente distintas bajo un nivel de significancia del 95% (p valor inferior a 0.05) y como la muestra parece seguir una distribución normal, esta diferencia es fiable. 
+
+Sin embargo, el test M de Box es muy sensible, por lo que se recomienda un límite de significancia de 0.001, por lo que, como el p-valor no es inferior a este, no podemos rechazar con total seguridad la hipótesis nula de covarianzas iguales y, por tanto, el resultado del análisis discriminante lineal es fiable.
+
+### E)
+
+**En el caso de poblaciones normales con diferentes matrices de covarianzas se clasificará cada observación en el grupo con máxima probabilidad a posteriori, pero entonces las funciones discriminantes no son lineales, ya que tienen un término de segundo grado. Realizar un análisis discriminante cuadrático. La función `qda()` del paquete `MASS` nos ayudará**
+
+```{r 2e1}
+qda_2e <- qda(formula = Origin ~ Freshwater + Marine, data = salmon)
+qda_2e_pred <- predict(lda_2b)
+```
+
+```{r 2e2}
+table(qda=qda_2e_pred$class,real=salmon$Origin) %>%
+  knitr::kable(caption = "Table 2.3. Table of cross-classification showing the predictied classes using the quadratic discriminant analysis and the real ones.")
+```
+
+
+
+En la *tabla 2.3* se observan las predicciones de las observaciones originales y se comparan con el grupo original de dichas observaciones. El resultado es el mismo que en la *tabla 2.2* pese a que se trata de un análisis discriminante lineal, mientras que en este caso estamos observando el resultado de un análsisi discriminante cuadrático.
+
+### F) 
+
+**Calcular el número de parámetros que hay que estimar en la discriminación lineal y en la cuadrática.**
+
+El número de parámetros efectivos a estimar en el LDA se puede calcular con la siguiente función:
+
+$$
+K_p + (K-1)
+$$
+
+Donde $K$ es el numero de clases de la variable predictora.
+
+### G) 
+
+**Calcular los errores de clasificación con ambas reglas utilizando validación cruzada. Si son similares, nos quedaremos con el análisis lineal que además es más robusto y de mejor interpretación.**
+
+Si vemos la tabla 2.2, podemos ver la tabla de datos predichos originales del análisis lineal, mientras que la tabla 2.3 muestra la misma para el análisis cuadrático.
+
+
+```{r}
+table_lda <- table(lda=lda_2b_pred$class,real=salmon$Origin)
+table_lda %>% knitr::kable(caption = "Table 2.2 (rep)")
+paste0("Percentage of coincidences without cross-validation: ",round(100*sum(diag(table_lda))/sum(table_lda),2),"%")
+paste0("Error rate without cross-validation:: ",round(100*(1-sum(diag(table_lda))/sum(table_lda)),2),"%")
+```
+
+
+```{r}
+table_qda <- table(qda=qda_2e_pred$class,real=salmon$Origin)
+table_qda %>% knitr::kable(caption = "Table 2.3. (rep)")
+paste0("Percentage of coincidences without cross-validation: ",round(100*sum(diag(table_qda))/sum(table_qda),2),"%")
+paste0("Error rate without cross-validation:: ",round(100*(1-sum(diag(table_qda))/sum(table_qda)),2),"%")
+```
+
+Vemos como ambas tablas son iguales.
+
+La validación cruzada es un método que nos permite evaluar el resultado de un análisis estadístico y que consiste en repetir el análisis mediante la evaluación de diferentes particiones (grupos de los datos originales que nos permiten entrenar el modelo).
+
+Para llevar a cabo la validación cruzada podemos hacerlo mediante las funciones `lda()` y `qda()` indicando el argumento `CV = T`.
+
+* **Validación cruzada para el LDA**
+
+```{r}
+lda_2b_CV <- lda(salmon[,2:3], grouping = salmon$Origin, CV = T)
+
+table_lda_cv <- table(prediction = lda_2b_CV$class, real=salmon$Origin)
+table_lda_cv %>% knitr::kable(caption = "Table 2.4. Table of predicted vs original data using LDA with CV.")
+
+paste0("Percentage of coincidences without cross-validation: ",round(100*sum(diag(table_lda_cv))/sum(table_lda_cv),2),"%")
+paste0("Error rate without cross-validation:: ",round(100*(1-sum(diag(table_lda_cv))/sum(table_lda_cv)),2),"%")
+```
+
+* **Validación cruzada para el QDA**
+
+```{r}
+qda_2h_CV <- qda(salmon[,2:3], grouping = salmon$Origin, CV = T)
+
+table_qda_cv <- table(prediction = qda_2h_CV$class, real=salmon$Origin)
+table_qda_cv %>% knitr::kable(caption = "Table 2.5. Table of predicted vs original data using QDA with CV.")
+
+paste0("Percentage of coincidences without cross-validation: ",round(100*sum(diag(table_qda_cv))/sum(table_qda_cv),2),"%")
+paste0("Error rate without cross-validation:: ",round(100*(1-sum(diag(table_qda_cv))/sum(table_qda_cv)),2),"%")
+```
+
+Vemos como, después de usar la validación curzada (CV), los valores de acierto y error de los datos predecidos son muy similares a antes de usar la validación cruzada. Sin embargo, antes de la CV ambos métodos dieron el mismo resultado en cuanto a tasa de acierto y error en las predicciones, pero después pese a ser muy similares, el método LDA parece tener una mejor actuación, por lo que nos quedamos con este.
+
+# Bibliografía
+
+1. Alboukadel Kassambara (2017). **Correspondence Analysis: Theory and Practice**. *STHDA*. Online [aquí](http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/120-correspondence-analysis-theory-and-practice/). 
+
+2. Michael Greenacre (2008). **La pràctica del anàlisis de correspondencias. Capítulo 4: Distancia ji-cuadrado e inercia**. *Fundación BBVA*. Online [aquí](https://www.fbbva.es/wp-content/uploads/2017/05/dat/greenacre_cap04.pdf).
+
+3. Alboukadel Kassambara (2017). **CA in R Using FactoMineR: Quick Scripts and Videos**. *STHDA*. Online [aquí](http://www.sthda.com/english/articles/22-principal-component-methods-videos/67-ca-in-r-using-factominer-quick-scripts-and-videos/). 
+
+4. Alboukadel Kassambara (2018). **Discriminant Analysis Essentials in R**. *STHDA*. Online [aquí](http://www.sthda.com/english/articles/36-classification-methods-essentials/146-discriminant-analysis-essentials-in-r).

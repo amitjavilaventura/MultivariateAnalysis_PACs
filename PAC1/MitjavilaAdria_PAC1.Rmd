@@ -160,8 +160,6 @@ cor_list_1d <- cor(data_num) %>%
 cor_list_1d %>% head(10) %>% knitr::kable(align = "c", caption = "Tabla 1.1. Lista de correlaciones dos a dos, ordenadas de mayor a menor correlación (en valor absoluto). Los valores de 1, indicando que una variable se enfrenta a ella misma, son mantenidos. Solo se muestran las 10 primeras entradas. La lista con todos los valores se puede encontrar en el material suplementario (Tabla S1.1).")
 ```
 
-
-
 <br><br><br>
 
 #### E)
@@ -280,7 +278,6 @@ La varianza total del total de los datos es `r vt_global`, mientras que para los
 **Coeficiente de dependencia global** o **$\eta^2 = 1−|R|$**: para calcular el coeficiente de dependencia global tenemos que calcular el determinante $||$ de la matriz de correlaciones $R$ ($|R|$) y restarlo de 1.
 
 ```{r 1g3}
-coef_dep           <- 1-det(cor(data_num))
 coef_dep_selector1 <- 1-det(cor(data_num_selector1))
 coef_dep_selector2 <- 1-det(cor(data_num_selector2))
 ```
